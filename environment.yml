@@ -1,18 +1,13 @@
 name: taxi_demand_forecasting
-
 channels:
-
-* conda-forge
-* defaults
-
+  - conda-forge
 dependencies:
-
-* python=3.11
-* numpy
-* pandas
-* matplotlib
-* scikit-learn
-* statsmodels
-* lightgbm
-* jupyter
-* ipykernel
+  - python>=3.10
+  - numpy
+  - pandas>=2.2
+  - matplotlib
+  - scikit-learn>=1.4
+  - statsmodels
+  - lightgbm
+  - jupyter
+  - ipykernel

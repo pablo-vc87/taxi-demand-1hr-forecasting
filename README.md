@@ -1,517 +1,216 @@
 # Taxi Demand 1-Hour Forecasting
 
-A time series forecasting project focused on predicting the number of taxi orders for the next hour.
+> Versión en español: [LEEME.md](LEEME.md)
 
-The project analyzes historical taxi demand data, explores temporal patterns, and compares different machine learning models using time-based features, lag variables, and rolling averages.
+A time series forecasting project that predicts the **number of taxi orders for the next hour** at airports, using historical demand recorded every 10 minutes.
 
-The final model, **Linear Regression with 72 lag features and a 4-hour rolling mean**, achieved a **final RMSE of 42.48 on the test set**, meeting the project requirement of **RMSE ≤ 48**.
+The project resamples high-frequency records into an hourly series, analyzes trend and seasonality, and builds calendar, lag, and rolling-mean features with a strictly chronological train/validation/test split. The selected model, **Linear Regression with 72 lag features and a 4-hour rolling mean**, achieved a **validation RMSE of 30.72** and a **final RMSE of 42.48 on the independent test set**, meeting the requirement of **RMSE ≤ 48**.
+
+The same workflow (aggregating high-frequency records, building lagged features, and validating without looking into the future) applies to sensor and environmental time series, such as weather or air-quality measurements recorded every few seconds.
 
 ---
 
-# Project Overview
+# Business Context
 
-Sweet Lift Taxi has collected historical data on taxi orders at airports. To attract more drivers during peak hours, the company needs a system capable of predicting the number of taxi orders for the next hour.
+Sweet Lift Taxi has collected historical data on taxi orders at airports. To attract more drivers during peak hours, the company needs to predict how many orders will arrive in the **next hour**. A reliable forecast helps to:
 
-The objective of this project was to build and evaluate machine learning models capable of forecasting hourly taxi demand.
+* Anticipate demand peaks and schedule drivers in advance.
+* Reduce passenger waiting times during busy hours.
+* Avoid having idle drivers during low-demand periods.
 
-The main performance requirement was:
+The model must predict one target:
+
+| Target | Description |
+| --- | --- |
+| `num_orders` | Number of taxi orders during the next hour |
+
+---
+
+# Time Series Concepts
+
+Forecasting the next hour depends on how demand behaved in the previous hours and on the time of day. The project uses the following concepts:
+
+| Term | Meaning |
+| --- | --- |
+| Resampling | Aggregating the 10-minute records into hourly totals |
+| Trend | Long-term direction of the series (increasing during the period) |
+| Seasonality | Pattern that repeats at a fixed interval (here, every day) |
+| Residuals | What remains after removing trend and seasonality |
+| Lag feature (`lag_n`) | Number of orders *n* hours before the current hour |
+| Rolling mean | Average of the previous hours, shifted so it never includes the current value |
+| Chronological split | Train, validation, and test sets kept in time order, never shuffled |
+
+## Feature Naming Convention
 
 ```text
-RMSE ≤ 48
+Calendar:      year, month, day, dayofweek, hour
+Lags:          lag_1, lag_2, ..., lag_72      (orders 1 to 72 hours before)
+Rolling mean:  rolling_mean                   (mean of the previous k hours)
 ```
 
-The project included:
+---
 
-* Data preparation and hourly resampling.
-* Exploratory analysis of trend and seasonality.
-* Time-based feature engineering.
-* Lag feature creation.
-* Rolling mean features.
-* Time-aware train, validation, and test splitting.
-* Hyperparameter experimentation.
-* Model comparison.
-* Final retraining and independent test evaluation.
+# Evaluation Metric
+
+The project uses the **Root Mean Squared Error (RMSE)**, which is expressed in the same unit as the target (orders per hour) and penalizes large errors more than small ones. This matters here because missing a demand peak is more costly than a small deviation in a quiet hour.
+
+$$
+\text{RMSE} = \sqrt{\frac{1}{N} \sum_{i=1}^{N} \left(y_i - \hat{y}_i\right)^2}
+$$
+
+The project requirement was **RMSE ≤ 48** on the test set.
+
+---
+
+# Dataset
+
+The data are historical taxi orders recorded every **10 minutes** and indexed by date and time (`datetime`).
+
+| File | Rows (hourly) | Columns | Description |
+| --- | ---: | ---: | --- |
+| `data/taxi.csv` | 4,416 | 1 | Number of orders (`num_orders`) per timestamp |
+
+* Period covered: **March 1 – August 31, 2018**.
+* After resampling to one hour, the series has **4,416 observations** and **no missing values**.
+
+**Data source.** The dataset was provided by **TripleTen** as part of its Data Science Bootcamp and is included in this repository for educational and reproducibility purposes.
 
 ---
 
 # Project Workflow
 
 ```text
-Original Data (10-minute intervals)
-                │
-                ▼
-     Datetime Index + Chronological Order
-                │
-                ▼
-        Hourly Resampling
-                │
-                ▼
-     Hourly Taxi Demand Time Series
-                │
-                ▼
-      Exploratory Data Analysis
-                │
-        ┌───────┴────────┐
-        ▼                ▼
-      Trend        Seasonality
-        │                │
-        └───────┬────────┘
-                ▼
-       Time-Based Data Split
-                │
-                ▼
-       Feature Engineering
-                │
-     ┌──────────┼───────────┐
-     ▼          ▼           ▼
-Calendar      Lags      Rolling Mean
-Features
-                │
-                ▼
-     Model + Hyperparameter Testing
-                │
-                ▼
-       Validation Set Comparison
-                │
-                ▼
-        Best Model Selection
-                │
-                ▼
- Retraining on Train + Validation
-                │
-                ▼
-       Final Test Evaluation
-                │
-                ▼
-           Conclusions
+Raw data (10-minute records)
+            │
+            ▼
+1. Data preparation
+   ├── Datetime index and chronological sorting
+   └── Hourly resampling (sum of orders)
+            │
+            ▼
+2. Time series analysis
+   ├── Full-period trend, seasonality, and residuals
+   └── Two-week windows (March and May) to inspect daily patterns
+            │
+            ▼
+3. Chronological split: 80% train / 10% validation / 10% test
+            │
+            ▼
+4. Feature engineering: calendar + lags + shifted rolling mean
+            │
+            ▼
+5. Modeling
+   ├── Linear Regression: 16 lag / rolling-window combinations
+   ├── Random Forest: hyperparameters and lag / window combinations
+   ├── LightGBM: 9 hyperparameter configurations
+   └── Retrain best model on train + validation and evaluate once on test
 ```
 
 ---
 
-# Dataset
+# 1. Data Preparation
 
-The dataset contains historical taxi order data.
-
-**File:**
-
-```text
-data/taxi.csv
-```
-
-The original observations were recorded at **10-minute intervals**.
-
-After preparing the datetime index and resampling the data to hourly intervals, the dataset contained:
-
-| Feature         |        Value |
-| --------------- | -----------: |
-| Observations    |        4,416 |
-| Columns         |            1 |
-| Target variable | `num_orders` |
-| Missing values  |            0 |
-| Frequency       |       Hourly |
-| Start date      |   2018-03-01 |
-| End date        |   2018-08-31 |
-
-Each observation after resampling represents the total number of taxi orders during one hour.
-
-The hourly resampling was necessary because the objective of the project is to predict taxi demand for the **next hour**.
-
----
-
-# Data Preparation
-
-The original dataset was prepared using the following workflow:
-
-```text
-Original Data
-     │
-     ▼
-Datetime Index
-     │
-     ▼
-Chronological Sorting
-     │
-     ▼
-Hourly Resampling
-     │
-     ▼
-Hourly Taxi Demand Series
-```
-
-The data was sorted chronologically before resampling:
+* The `datetime` column was parsed as the index and the records were **sorted chronologically**.
+* The 10-minute records were **resampled to hourly totals**, because the goal is to forecast the next hour:
 
 ```python
 df.sort_index(inplace=True)
-
-df = df.resample('1H').sum()
+df = df.resample('1h').sum()
 ```
 
-After resampling, the dataset contained 4,416 hourly observations.
+* The resulting series has **4,416 hourly observations** between 2018-03-01 and 2018-08-31, with no missing values.
 
 ---
 
-# Exploratory Analysis
+# 2. Time Series Analysis
 
-The time series analysis showed two important patterns:
+The series was decomposed into **trend**, **seasonality**, and **residuals** with `seasonal_decompose` (statsmodels), first for the full period and then for two-week windows in March and May.
 
-* A general increasing trend in taxi demand.
-* A clear daily seasonality.
+* **Trend:** demand **increases** over the period. It is relatively stable in March and grows more clearly from May onward.
+* **Seasonality:** there is a **clear daily cycle**, with several peaks during the day; the strongest peak is in the **last hours of the day**.
+* **Residuals:** show occasional spikes but no strong structure compared with the seasonal component.
 
-These patterns indicated that historical demand and temporal information could be useful for forecasting future taxi orders.
-
-For this reason, the modeling process incorporated:
-
-* Calendar features.
-* Historical lag variables.
-* Rolling mean features.
+**Implication for modeling.** Because the next hour depends on the most recent hours and on the time of day, the features focus on **recent history (lags and rolling mean)** and **calendar variables**.
 
 ---
 
-# Data Splitting
+# 3. Chronological Split
 
-The data was divided while preserving chronological order.
-
-Random shuffling was avoided because a forecasting model must only use information available before the prediction time.
-
-The final 10% of the dataset was reserved exclusively for the final test evaluation.
+The data was split **without shuffling**, so the model never learns from observations that come after the ones it predicts.
 
 ```text
-100% of the Data
+100% of the data (in time order)
 │
-├── 80% TRAIN ──────────────→ Model training
-│
-├── 10% VALIDATION ─────────→ Feature and model selection
-│
-└── 10% TEST ───────────────→ Final evaluation
+├── 80% TRAIN ────────→ model training
+├── 10% VALIDATION ───→ feature and hyperparameter selection
+└── 10% TEST ─────────→ final evaluation (used only once)
 ```
 
-The test set remained completely separate during:
-
-* Feature selection.
-* Lag configuration testing.
-* Rolling mean testing.
-* Hyperparameter tuning.
-* Model selection.
-
-Only after selecting the final configuration was the model evaluated on the test set.
+The test set stayed untouched during feature selection, hyperparameter tuning, and model selection.
 
 ---
 
-# Feature Engineering
+# 4. Feature Engineering
 
-To predict the number of taxi orders for the next hour, several temporal and historical features were created.
+| Group | Features | Purpose |
+| --- | --- | --- |
+| Calendar | `year`, `month`, `day`, `dayofweek`, `hour` | Capture daily and weekly patterns |
+| Lags | `lag_1` … `lag_n` | Demand in the previous *n* hours |
+| Rolling mean | `rolling_mean` (window *k*) | Recent demand level |
 
-## Calendar Features
+* The rolling mean is calculated on the **shifted** series, so it only uses past values and does not leak the current target.
+* Rows with missing values created by the first lags were removed.
+* For validation and test, the **last observations of the previous period** were used as context to build the first lags, without using any future values.
 
-The following features were extracted from the datetime index:
-
-```text
-year
-month
-day
-dayofweek
-hour
-```
-
-These variables allow the model to capture calendar and hourly patterns.
+The tested values were `max_lag ∈ {4, 8, 24, 72}` and `rolling_mean_size ∈ {4, 8, 24, 72}`. The best combination was **72 lags with a 4-hour rolling mean**.
 
 ---
 
-## Lag Features
+# 5. Modeling
 
-Lag variables were created to provide information about previous taxi demand.
+Three regression models were trained on the training set and compared on the validation set:
 
-For example:
+| Model | Configurations tested | Best Validation RMSE |
+| --- | --- | ---: |
+| **Linear Regression** | 16 lag / rolling-window combinations | **30.72** |
+| Random Forest Regressor | 400 trees with max depth 10, 15, and 20 (72 lags, 4-hour window), then 5 lag / window combinations | 31.04 |
+| LightGBM Regressor | 9 hyperparameter sets (72 lags, 4-hour window) | 48.03 |
 
-```text
-lag_1
-lag_2
-lag_3
-...
-lag_n
-```
+* **Linear Regression** obtained the lowest error with **72 lags and a 4-hour rolling mean**.
+* **Random Forest** (400 trees, max depth 20) was close (31.04), but did not improve on Linear Regression and needed much more training time (about 38 s vs 0.01 s). Fixing its hyperparameters and changing the lags or window size made the result worse.
+* **LightGBM** had the weakest result (48.03), above the validation error of the other two models.
 
-The final selected configuration used:
+## Final Result
 
-```text
-72 lags
-```
-
-This allowed the model to use information from the previous 72 hours.
-
----
-
-## Rolling Mean
-
-A shifted rolling mean was also included to represent recent demand levels.
-
-The final selected configuration used:
+The selected configuration was retrained on **train + validation (90% of the data)** and evaluated **once** on the test set. The last 72 hours before the test period were used as context to build the first test lags.
 
 ```text
-4-hour rolling mean
-```
-
-The target variable was shifted before calculating the rolling mean to prevent information leakage.
-
----
-
-# Feature Engineering Pipeline
-
-```text
-Hourly Taxi Demand Series
-            │
-            ▼
-     Calendar Features
-(year, month, day, dayofweek, hour)
-            │
-            ▼
-      Historical Lag Features
-       (lag_1 ... lag_n)
-            │
-            ▼
-     Shifted Rolling Mean
-            │
-            ▼
-   Remove Initial Missing Values
-            │
-            ▼
-Machine Learning Feature Matrix
+Model:                Linear Regression
+Features:             72 lags + 4-hour rolling mean + calendar
+Validation RMSE:      30.72
+Test RMSE:            42.48
+Requirement:          RMSE ≤ 48   ✓
 ```
 
 ---
 
-# Models Evaluated
+# Conclusions
 
-The following models were evaluated:
+1. **Hourly resampling** turned the 10-minute records into a series suited to one-hour forecasting.
 
-* Linear Regression
-* Random Forest Regressor
-* LightGBM Regressor
+2. **The series has an increasing trend and a clear daily seasonality**, which justified using calendar variables, lags, and a rolling mean.
 
-Different combinations of:
+3. **A chronological split prevented information leakage**: the test set was used only once, after selecting the model.
 
-* Lag values.
-* Rolling mean window sizes.
-* Model hyperparameters.
+4. **Linear Regression was the best model**, with a validation RMSE of **30.72**, compared with Random Forest (**31.04**) and LightGBM (**48.03**). A simple model with well-designed temporal features outperformed more complex ones and trained in a fraction of the time.
 
-were tested using the validation set.
+5. **On the independent test set, the RMSE was 42.48**, below the required 48. The gap versus validation (30.72) is consistent with the increasing trend: the test set covers **August 13–31**, when demand is highest and most variable (mean of **139.6** orders per hour vs **74.3** in training, and standard deviation of 58.6 vs 35.7), so errors measured in orders per hour are larger.
 
----
+## Next Steps
 
-# Model Performance
-
-The best validation result for each model was:
-
-| Model                 | RMSE Validation | Result            |
-| --------------------- | --------------: | ----------------- |
-| **Linear Regression** |       **30.72** | Best result       |
-| Random Forest         |           31.04 | Did not improve   |
-| LightGBM              |           48.03 | Lower performance |
-
-The project requirement was:
-
-```text
-RMSE ≤ 48
-```
-
-Both Linear Regression and Random Forest achieved results below the required threshold during validation.
-
-However, Linear Regression achieved the lowest validation RMSE.
-
----
-
-# Linear Regression
-
-Different combinations of lag values and rolling mean window sizes were evaluated.
-
-The best configuration was:
-
-```text
-Model: Linear Regression
-
-Maximum lag: 72 hours
-
-Rolling mean window: 4 hours
-
-Validation RMSE: 30.72
-```
-
-This result was significantly below the project requirement.
-
----
-
-# Random Forest
-
-Random Forest was evaluated using different hyperparameter configurations.
-
-The best result was approximately:
-
-```text
-Validation RMSE: 31.04
-```
-
-Although the result was competitive, it did not improve upon Linear Regression.
-
-Additionally, Random Forest required more training time.
-
-Therefore, it was not selected as the final model.
-
----
-
-# LightGBM
-
-LightGBM was also evaluated using the engineered time-series features.
-
-Its best validation result was:
-
-```text
-Validation RMSE: 48.03
-```
-
-This result was substantially worse than:
-
-```text
-Linear Regression: 30.72
-
-Random Forest: 31.04
-```
-
-For this dataset and feature representation, LightGBM did not provide an improvement.
-
----
-
-# Final Model Selection
-
-The validation results showed that Linear Regression achieved the lowest error.
-
-| Model                 | Validation RMSE |
-| --------------------- | --------------: |
-| **Linear Regression** |       **30.72** |
-| Random Forest         |           31.04 |
-| LightGBM              |           48.03 |
-
-The selected configuration was:
-
-```text
-Model:
-Linear Regression
-
-Maximum lag:
-72
-
-Rolling mean:
-4 hours
-```
-
-The model selection was performed exclusively using the training and validation datasets.
-
-The test set was not used during model selection.
-
----
-
-# Final Training
-
-After selecting the best configuration, the final Linear Regression model was retrained using:
-
-```text
-TRAIN + VALIDATION
-
-90% of the complete dataset
-```
-
-The final test set remained separate.
-
-To create the first lag features for the test period, the last 72 observations from the training and validation period were used as historical context.
-
-No future information from the test set was used when creating the initial prediction features.
-
----
-
-# Final Evaluation Pipeline
-
-```text
-Final TRAIN + VALIDATION
-            │
-            ▼
- Context: Last 72 Observations
-            │
-            ▼
-        TEST Dataset
-            │
-            ▼
-Create 72 Lag Features
-            │
-            ▼
-Create 4-Hour Rolling Mean
-            │
-            ▼
-    Final Predictions
-            │
-            ▼
-       RMSE Evaluation
-```
-
----
-
-# Final Results
-
-The final model was evaluated once on the independent test set.
-
-```text
-Model:
-
-Linear Regression
-
-Features:
-
-72 lag variables
-
-4-hour rolling mean
-
-Validation RMSE:
-
-30.72
-
-Final Test RMSE:
-
-42.48
-
-Project Requirement:
-
-RMSE ≤ 48
-```
-
-## Result
-
-```text
-✓ PROJECT REQUIREMENT ACHIEVED
-```
-
-The final RMSE of **42.48** is below the maximum allowed value of **48**.
-
----
-
-# Key Findings
-
-The main findings of the project were:
-
-1. The original data was successfully transformed from 10-minute intervals into an hourly time series.
-
-2. The exploratory analysis revealed a general increasing trend and clear daily seasonality.
-
-3. Time-based features, historical lags, and rolling means provided useful information for forecasting taxi demand.
-
-4. Preserving chronological order during data splitting was essential to avoid future information leakage.
-
-5. Linear Regression achieved the best validation performance with an RMSE of **30.72**.
-
-6. The best feature configuration used **72 lag variables** and a **4-hour rolling mean**.
-
-7. Random Forest achieved a competitive RMSE of **31.04**, but did not outperform Linear Regression and required more computational resources.
-
-8. LightGBM produced the weakest result, with an RMSE of **48.03** during validation.
-
-9. After retraining Linear Regression using the complete training and validation data, the final model achieved an RMSE of **42.48** on the independent test set.
+* Validate with rolling time-based splits (`TimeSeriesSplit`, available in scikit-learn) to check that the result is stable across different periods.
+* Compare the model against simple baselines on the test set, such as predicting the previous hour or the same hour of the previous day.
+* Investigate the low LightGBM result: tree-based models cannot extrapolate beyond the target values seen in training, which may hurt them in a series with an increasing trend.
 
 ---
 
@@ -532,6 +231,7 @@ taxi-demand-1hr-forecasting/
 ├── .gitignore
 ├── environment.yml
 ├── requirements.txt
+├── LEEME.md
 └── README.md
 ```
 
@@ -549,41 +249,22 @@ cd taxi-demand-1hr-forecasting
 
 ## Option 1: Conda
 
-Create the environment:
-
 ```bash
 conda env create -f environment.yml
-```
-
-Activate it:
-
-```bash
 conda activate taxi_demand_forecasting
-```
-
-Then start Jupyter Notebook:
-
-```bash
 jupyter notebook
 ```
-
----
 
 ## Option 2: pip
 
-Create and activate a virtual environment.
-
-Install the required dependencies:
+Create and activate a virtual environment, then:
 
 ```bash
 pip install -r requirements.txt
-```
-
-Then launch Jupyter:
-
-```bash
 jupyter notebook
 ```
+
+Open `notebooks/taxi_demand_1hr_forecasting.ipynb` and run all cells. The Random Forest experiments take a few minutes on a laptop.
 
 ---
 
@@ -593,8 +274,8 @@ jupyter notebook
 * Pandas
 * NumPy
 * Matplotlib
-* scikit-learn
 * statsmodels
+* scikit-learn
 * LightGBM
 * Jupyter Notebook
 
@@ -602,66 +283,14 @@ jupyter notebook
 
 # Skills Demonstrated
 
-This project demonstrates experience with:
-
-* Time Series Forecasting
-* Time Series Resampling
-* Trend Analysis
-* Seasonality Analysis
-* Feature Engineering
-* Lag Features
-* Rolling Statistics
-* Time-Based Data Splitting
-* Machine Learning Model Comparison
-* Hyperparameter Testing
-* Linear Regression
-* Random Forest
-* LightGBM
-* RMSE Optimization
-* Model Validation
-* Final Test Evaluation
-* Data Leakage Prevention
-* Python-based Data Analysis
-
----
-
-# Conclusions
-
-The objective of this project was to develop a machine learning solution capable of predicting the number of taxi orders for the next hour while achieving an RMSE no greater than 48.
-
-The historical taxi order data was resampled into hourly intervals and analyzed to identify temporal patterns. The analysis revealed a general increasing trend and clear daily seasonality.
-
-Several machine learning models were evaluated using different combinations of temporal features, lag variables, rolling means, and hyperparameters.
-
-The main conclusions were:
-
-1. The hourly resampling successfully transformed the original 10-minute data into a time series suitable for one-hour demand forecasting.
-
-2. Preserving chronological order during train, validation, and test splitting prevented future information leakage.
-
-3. Lag variables and rolling averages were effective for representing the recent dynamics of taxi demand.
-
-4. Linear Regression achieved the best validation result with an RMSE of **30.72**.
-
-5. The best feature configuration used **72 lag variables** and a **4-hour rolling mean**.
-
-6. Random Forest achieved an RMSE of **31.04**, but did not outperform Linear Regression.
-
-7. LightGBM obtained an RMSE of **48.03**, making it the weakest model among those evaluated.
-
-8. After retraining the selected Linear Regression model using 90% of the available data, the final test evaluation produced an RMSE of **42.48**.
-
-The final result meets the project requirement:
-
-```text
-Final Test RMSE = 42.48
-
-Required RMSE ≤ 48
-
-✓ OBJECTIVE ACHIEVED
-```
-
-This project demonstrates that, for this hourly taxi demand forecasting problem, a relatively simple Linear Regression model combined with well-designed temporal features, historical lags, and rolling statistics can outperform more complex machine learning models.
+* Time series resampling (high-frequency records to hourly series)
+* Trend and seasonality decomposition
+* Lag and rolling-window feature engineering
+* Chronological train / validation / test splitting
+* Data leakage prevention in time series
+* Model comparison and hyperparameter testing
+* Linear Regression, Random Forest, and LightGBM
+* RMSE evaluation on an independent test set
 
 ---
 
@@ -669,7 +298,7 @@ This project demonstrates that, for this hourly taxi demand forecasting problem,
 
 **Pablo Andrés Vázquez Calva**
 
-Data Analyst | Data Science
+Data Scientist
 
 GitHub: https://github.com/pablo-vc87
 

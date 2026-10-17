@@ -3,7 +3,7 @@ import time
 import pandas as pd
 import matplotlib.pyplot as plt
 
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import root_mean_squared_error
 from statsmodels.tsa.seasonal import seasonal_decompose
 #=================================================================
 def mostrar_nan(df, columna=None, mostrar=False, num_filas=10):
@@ -109,7 +109,7 @@ def evaluar_modelo(
     # ==========================
     # RMSE
     # ==========================
-    rmse = mean_squared_error(y_valid, predicciones, squared=False)
+    rmse = root_mean_squared_error(y_valid, predicciones)
     
     
     # ==========================
