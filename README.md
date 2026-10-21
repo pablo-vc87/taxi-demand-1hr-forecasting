@@ -4,7 +4,7 @@
 
 A time series forecasting project that predicts the **number of taxi orders for the next hour** at airports, using historical demand recorded every 10 minutes.
 
-The project resamples high-frequency records into an hourly series, analyzes trend and seasonality, and builds calendar, lag, and rolling-mean features with a strictly chronological train/validation/test split. The selected model, **Linear Regression with 72 lag features and a 4-hour rolling mean**, achieved a **validation RMSE of 30.72** and a **final RMSE of 42.48 on the independent test set**, meeting the requirement of **RMSE ≤ 48**.
+The project resamples high-frequency records into an hourly series, analyzes trend and seasonality, and builds calendar, lag, and rolling-mean features with a strictly chronological train/validation/test split. The selected model, **Linear Regression with 72 lag features and a 4-hour rolling mean**, achieved a **validation RMSE of 30.72** and a **final RMSE of 42.48 on the independent test set**, **28% lower than a naive forecast** that repeats the previous hour (RMSE 58.86), and within the requirement of **RMSE ≤ 48**.
 
 The same workflow (aggregating high-frequency records, building lagged features, and validating without looking into the future) applies to sensor and environmental time series, such as weather or air-quality measurements recorded every few seconds.
 
@@ -192,6 +192,16 @@ Test RMSE:            42.48
 Requirement:          RMSE ≤ 48   ✓
 ```
 
+### Comparison with Baselines
+
+To measure what the model adds, it was compared on the same test set with two naive forecasts that need no training. Both use the lag columns already built for the test set, so they do not use future information.
+
+| Model | Test RMSE | Improvement of the final model |
+| --- | ---: | ---: |
+| Baseline: previous hour (`lag_1`) | 58.86 | 27.8% |
+| Baseline: same hour of the previous day (`lag_24`) | 57.19 | 25.7% |
+| **Linear Regression (final model)** | **42.48** | — |
+
 ---
 
 # Conclusions
@@ -204,12 +214,11 @@ Requirement:          RMSE ≤ 48   ✓
 
 4. **Linear Regression was the best model**, with a validation RMSE of **30.72**, compared with Random Forest (**31.04**) and LightGBM (**48.03**). A simple model with well-designed temporal features outperformed more complex ones and trained in a fraction of the time.
 
-5. **On the independent test set, the RMSE was 42.48**, below the required 48. The gap versus validation (30.72) is consistent with the increasing trend: the test set covers **August 13–31**, when demand is highest and most variable (mean of **139.6** orders per hour vs **74.3** in training, and standard deviation of 58.6 vs 35.7), so errors measured in orders per hour are larger.
+5. **On the independent test set, the RMSE was 42.48**, 27.8% lower than the previous-hour baseline (58.86) and 25.7% lower than the same-hour-previous-day baseline (57.19), and below the required 48. The gap versus validation (30.72) is consistent with the increasing trend: the test set covers **August 13–31**, when demand is highest and most variable (mean of **139.6** orders per hour vs **74.3** in training, and standard deviation of 58.6 vs 35.7), so errors measured in orders per hour are larger.
 
 ## Next Steps
 
 * Validate with rolling time-based splits (`TimeSeriesSplit`, available in scikit-learn) to check that the result is stable across different periods.
-* Compare the model against simple baselines on the test set, such as predicting the previous hour or the same hour of the previous day.
 * Investigate the low LightGBM result: tree-based models cannot extrapolate beyond the target values seen in training, which may hurt them in a series with an increasing trend.
 
 ---

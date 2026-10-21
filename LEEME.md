@@ -4,7 +4,7 @@
 
 Un proyecto de pronóstico de series de tiempo que predice el **número de pedidos de taxi para la próxima hora** en aeropuertos, a partir de la demanda histórica registrada cada 10 minutos.
 
-El proyecto remuestrea los registros de alta frecuencia a una serie horaria, analiza la tendencia y la estacionalidad, y construye variables de calendario, rezagos y media móvil con una división cronológica estricta en entrenamiento, validación y prueba. El modelo seleccionado, **Regresión Lineal con 72 rezagos y una media móvil de 4 horas**, obtuvo un **RMSE de 30.72 en validación** y un **RMSE final de 42.48 en el conjunto de prueba independiente**, cumpliendo el requisito de **RMSE ≤ 48**.
+El proyecto remuestrea los registros de alta frecuencia a una serie horaria, analiza la tendencia y la estacionalidad, y construye variables de calendario, rezagos y media móvil con una división cronológica estricta en entrenamiento, validación y prueba. El modelo seleccionado, **Regresión Lineal con 72 rezagos y una media móvil de 4 horas**, obtuvo un **RMSE de 30.72 en validación** y un **RMSE final de 42.48 en el conjunto de prueba independiente**, **28% menor que un pronóstico ingenuo** que repite la hora anterior (RMSE 58.86) y dentro del requisito de **RMSE ≤ 48**.
 
 El mismo flujo de trabajo (agregar registros de alta frecuencia, construir variables con rezagos y validar sin mirar al futuro) se aplica a series de tiempo de sensores y datos ambientales, como mediciones meteorológicas o de calidad del aire registradas cada pocos segundos.
 
@@ -192,6 +192,16 @@ RMSE en prueba:       42.48
 Requisito:            RMSE ≤ 48   ✓
 ```
 
+### Comparación con Modelos Base
+
+Para medir cuánto aporta el modelo, se comparó en el mismo conjunto de prueba con dos pronósticos ingenuos que no requieren entrenamiento. Ambos usan las columnas de rezago ya construidas para la prueba, así que no usan información futura.
+
+| Modelo | RMSE en prueba | Mejora del modelo final |
+| --- | ---: | ---: |
+| Base: hora anterior (`lag_1`) | 58.86 | 27.8% |
+| Base: misma hora del día anterior (`lag_24`) | 57.19 | 25.7% |
+| **Regresión Lineal (modelo final)** | **42.48** | — |
+
 ---
 
 # Conclusiones
@@ -204,12 +214,11 @@ Requisito:            RMSE ≤ 48   ✓
 
 4. **La Regresión Lineal fue el mejor modelo**, con un RMSE de validación de **30.72**, frente a Random Forest (**31.04**) y LightGBM (**48.03**). Un modelo simple con variables temporales bien diseñadas superó a modelos más complejos y se entrenó en una fracción del tiempo.
 
-5. **En el conjunto de prueba independiente, el RMSE fue de 42.48**, por debajo del límite de 48. La diferencia con validación (30.72) es coherente con la tendencia creciente: el conjunto de prueba cubre del **13 al 31 de agosto**, cuando la demanda es más alta y más variable (media de **139.6** pedidos por hora contra **74.3** en entrenamiento, y desviación estándar de 58.6 contra 35.7), así que los errores medidos en pedidos por hora son mayores.
+5. **En el conjunto de prueba independiente, el RMSE fue de 42.48**, 27.8% menor que el modelo base de la hora anterior (58.86) y 25.7% menor que el de la misma hora del día anterior (57.19), y por debajo del límite de 48. La diferencia con validación (30.72) es coherente con la tendencia creciente: el conjunto de prueba cubre del **13 al 31 de agosto**, cuando la demanda es más alta y más variable (media de **139.6** pedidos por hora contra **74.3** en entrenamiento, y desviación estándar de 58.6 contra 35.7), así que los errores medidos en pedidos por hora son mayores.
 
 ## Siguientes Pasos
 
 * Validar con divisiones temporales sucesivas (`TimeSeriesSplit`, disponible en scikit-learn) para comprobar que el resultado es estable en distintos periodos.
-* Comparar el modelo con referencias simples en el conjunto de prueba, como predecir el valor de la hora anterior o el de la misma hora del día anterior.
 * Investigar el bajo resultado de LightGBM: los modelos basados en árboles no pueden extrapolar más allá de los valores del objetivo vistos en el entrenamiento, lo que puede perjudicarlos en una serie con tendencia creciente.
 
 ---
